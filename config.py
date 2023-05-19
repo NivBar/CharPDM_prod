@@ -52,7 +52,7 @@ model = "gpt-3.5-turbo"
 # presence_penalty = 2.0
 temperature = 0.5
 top_p = 0.8
-max_tokens = 600
+max_tokens = 160
 frequency_penalty = 1.0
 presence_penalty = 2.0
 

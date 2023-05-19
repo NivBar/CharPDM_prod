@@ -4,6 +4,9 @@ import tiktoken
 import pandas as pd
 import glob
 from bson.objectid import ObjectId
+import warnings
+
+warnings.filterwarnings("ignore")
 
 encoder = tiktoken.encoding_for_model(config.model)
 
@@ -91,7 +94,7 @@ def get_messages(bot_name, data):
                  "content": f"The ranked documents of your opponents in this epoch are as follows:\n {txt_rnk}"})
             messages.append({"role": "system",
                              "content": f"Infer from the documents and rankings how to align well with the ranker's"
-                                        f"features."})
+                                        f" features."})
             messages.append({"role": "user",
                              "content": "Generate a single text that addresses the three topics in a comprehensive, informative and "
                                         "coherent manner without any abrupt transitions or incomplete sentences.\nText:"})
@@ -149,19 +152,25 @@ def get_comp_text(messages):
 
 
 if __name__ == '__main__':
-    bot_followup = pd.read_csv("bot_followup.csv")
-    bot_followup = bot_followup[bot_followup['text'].isna()]
+    orig = pd.read_csv("bot_followup.csv")
+    bot_followup = orig[orig['text'].isna()]
     data = get_data()
     data[["position1", "position2", "position3"]] = data[["position1", "position2", "position3"]].astype(int) / 10
     data[["position1", "position2", "position3"]] = data[["position1", "position2", "position3"]].astype(int)
+    len_ = len(bot_followup)
     for idx, row in bot_followup.iterrows():
         bot_name = row["username"]
         group = row["group"]
         query_id = row["query_id"]
+        print(f"Starting {idx + 1}/{len_}: {bot_name}, {group}, {query_id}")
         rel_data = data[(data['group'] == group) & (data['query_id'] == query_id)]
         rel_data = rel_data.loc[rel_data[["position1", "position2", "position3"]].median(axis=1).sort_values(0).index]
         messages = get_messages(bot_name, rel_data)
         res = get_comp_text(messages)['choices'][0]['message']['content']
-        bot_followup.at[idx, "text"] = res
-        bot_followup.to_csv("bot_followup.csv", index=False)
+        deleted_edition = min([x for x in [res.split(".")[-1], res.split("!")[-1], res.split("?")[-1], res.split("\n\n")[-1]] if x != res],
+                              key=len)
+        res = res.replace(deleted_edition, "")
+        orig.at[idx, "text"] = res
+        orig.to_csv("bot_followup.csv", index=False)
+        print(f"Done {idx + 1}/{len_}: {bot_name}, {group}, {query_id}")
     x = 1
