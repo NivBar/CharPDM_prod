@@ -3,8 +3,9 @@ import config
 import tiktoken
 import pandas as pd
 import glob
-from bson.objectid import ObjectId
+# from bson.objectid import ObjectId
 import warnings
+from pprint import pprint
 
 warnings.filterwarnings("ignore")
 
@@ -37,6 +38,17 @@ def rank_suff(loc):
     else:
         return ("th")
 
+def rank_str(loc):
+    if loc == 1:
+        return ("first")
+    elif loc == 2:
+        return ("second")
+    elif loc == 3:
+        return ("third")
+    elif loc == 4:
+        return ("fourth")
+    elif loc == 5:
+        return ("fifth")
 
 def get_messages(bot_name, data):
     assert bot_name in ["NMABOT", "NMTBOT", "NMSBOT", "MABOT", "MTBOT", "MSBOT"]
@@ -57,13 +69,12 @@ def get_messages(bot_name, data):
 
     messages = [
         {"role": "system",
-         "content": fr"You are an expert on: " + ", ".join(queries)},
-        {"role": "system",
-         "content": "You participate in a text relevance to said topics contest, your document should be ranked first "
-                    "(1st) for every topic respectively."},
+         "content": fr"You participate in a search engine optimization competition regarding the following queries: " +
+                    ", ".join(queries) +
+                    ". Your document should be ranked first for all queries."},
         {"role": "user",
-         "content": "Generate a single text that addresses the three topics in a comprehensive, informative and "
-                    "coherent manner without any abrupt transitions or incomplete sentences.\nText:"},
+         "content": "Generate a single text that a user will deem as highly relevant to all three queries."
+                    " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"},
     ]
 
     rounds = data['round_no'].unique()
@@ -80,15 +91,15 @@ def get_messages(bot_name, data):
 
         messages.append({"role": "assistant", "content": f"{curr_text}"})
         messages.append({"role": "system",
-                         "content": f"You were ranked {curr_ranks[0]}{rank_suff(curr_ranks[0])}, {curr_ranks[1]}{rank_suff(curr_ranks[1])}, "
-                                    f"{curr_ranks[2]}{rank_suff(curr_ranks[2])} respectively in this epoch"})
+                         "content": f"You were ranked {rank_str(curr_ranks[0])}, {rank_str(curr_ranks[1])}, "
+                                    f"{rank_str(curr_ranks[2])} respectively in this epoch"})
 
         if bot_type == "all":
             txt_rnk = ""
             for _, row in round_data.iterrows():
                 if row["username"] != bot_name:
-                    txt_rnk += f"Ranked {row['position1']}{rank_suff(row['position1'])}, {row['position2']}{rank_suff(row['position2'])}, " \
-                               f"{row['position3']}{rank_suff(row['position3'])} respectively:\n{row['posted_document']}\n\n"
+                    txt_rnk += f"Ranked {rank_str(row['position1'])}, {rank_str(row['position2'])}, " \
+                               f"{rank_str(row['position3'])} respectively:\n{row['posted_document']}\n\n"
             messages.append(
                 {"role": "system",
                  "content": f"The ranked documents of your opponents in this epoch are as follows:\n {txt_rnk}"})
@@ -96,29 +107,29 @@ def get_messages(bot_name, data):
                              "content": f"Infer from the documents and rankings how to align well with the ranker's"
                                         f" features."})
             messages.append({"role": "user",
-                             "content": "Generate a single text that addresses the three topics in a comprehensive, informative and "
-                                        "coherent manner without any abrupt transitions or incomplete sentences.\nText:"})
+                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
+                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
 
         elif bot_type == "tops":
             messages.append(
                 {"role": "system",
-                 "content": f"The top document, ranked {top_ranks[0]}{rank_suff(top_ranks[0])}, "
-                            f"{top_ranks[1]}{rank_suff(top_ranks[1])}, {top_ranks[2]}{rank_suff(top_ranks[2])} "
+                 "content": f"The top document, ranked {rank_str(top_ranks[0])}, "
+                            f"{rank_str(top_ranks[1])}, {rank_str(top_ranks[2])} "
                             f"respectively: {top_text}"})
             messages.append({"role": "system",
                              "content": f"Infer from the top document how to align well with the ranker's features."})
             messages.append({"role": "user",
-                             "content": "Generate a single text that addresses the three topics in a comprehensive, informative and "
-                                        "coherent manner without any abrupt transitions or incomplete sentences.\nText:"})
+                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
+                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
 
         elif bot_type == "self":
             messages.append({"role": "user",
-                             "content": "Generate a single text that addresses the three topics in a comprehensive, informative and "
-                                        "coherent manner without any abrupt transitions or incomplete sentences.\nText:"})
+                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
+                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
     return messages
 
 
-def get_comp_text(messages):
+def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p, frequency_penalty = config.frequency_penalty,presence_penalty = config.presence_penalty):
     max_tokens = config.max_tokens
     response = False
     prompt_tokens = len(encoder.encode("".join([line['content'] for line in messages]))) + 200
@@ -131,18 +142,23 @@ def get_comp_text(messages):
             response = openai.ChatCompletion.create(
                 model=config.model,
                 messages=messages,
-                temperature=config.temperature,
-                top_p=config.top_p,
+                temperature=temperature,
+                top_p=top_p,
                 max_tokens=max_tokens,
-                frequency_penalty=config.frequency_penalty,
-                presence_penalty=config.presence_penalty,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
             )
             # print("success")
-            word_no = len(response['choices'][0]['message']['content'].split())
+            word_no = len(response['choices'][0]['message']['content'].split(' '))
             if word_no > 150:
-                max_tokens -= 50
+                max_tokens -= 10
                 response = False
                 print(f"word no was: {word_no}, dropping max tokens to: {max_tokens}.")
+                continue
+            if word_no < 140:
+                max_tokens += 10
+                response = False
+                print(f"word no was: {word_no}, increasing max tokens to: {max_tokens}.")
                 continue
             break
         except Exception as e:
@@ -152,6 +168,7 @@ def get_comp_text(messages):
 
 
 if __name__ == '__main__':
+    bot_valid = {"MABOT": False, "MTBOT": False, "MSBOT": False, "NMABOT": False, "NMTBOT": False, "NMSBOT": False}
     orig = pd.read_csv("bot_followup.csv")
     bot_followup = orig[orig['text'].isna()]
     data = get_data()
@@ -160,16 +177,25 @@ if __name__ == '__main__':
     len_ = len(bot_followup)
     for idx, row in bot_followup.iterrows():
         bot_name = row["username"]
+
         group = row["group"]
         query_id = row["query_id"]
         print(f"Starting {idx + 1}/{len_}: {bot_name}, {group}, {query_id}")
         rel_data = data[(data['group'] == group) & (data['query_id'] == query_id)]
-        rel_data = rel_data.loc[rel_data[["position1", "position2", "position3"]].median(axis=1).sort_values(0).index]
+        rel_data = rel_data.loc[
+            rel_data[["position1", "position2", "position3"]].median(axis=1).sort_values(axis=0).index]
         messages = get_messages(bot_name, rel_data)
+
+        if not bot_valid[bot_name]:
+            pprint(messages)
+            bot_valid[bot_name] = True
+
         res = get_comp_text(messages)['choices'][0]['message']['content']
-        deleted_edition = min([x for x in [res.split(".")[-1], res.split("!")[-1], res.split("?")[-1], res.split("\n\n")[-1]] if x != res],
-                              key=len)
-        res = res.replace(deleted_edition, "")
+        deleted_segment = min(
+            [x for x in [res.split(".")[-1], res.split("!")[-1], res.split("?")[-1], res.split("\n\n")[-1]] if
+             x != res],
+            key=len)
+        res = res.replace(deleted_segment, "")
         orig.at[idx, "text"] = res
         orig.to_csv("bot_followup.csv", index=False)
         print(f"Done {idx + 1}/{len_}: {bot_name}, {group}, {query_id}")

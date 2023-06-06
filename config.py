@@ -50,11 +50,11 @@ model = "gpt-3.5-turbo"
 # max_tokens = 700
 # frequency_penalty = 1.0
 # presence_penalty = 2.0
-temperature = 0.5
-top_p = 0.8
+temperature = 0.2
+top_p = 0.3
 max_tokens = 160
 frequency_penalty = 1.0
-presence_penalty = 2.0
+presence_penalty = 0.0
 
 #### useful data collections ####
 # topic_codex_new = json.load(open("topic_queries_doc.json", "r"))
