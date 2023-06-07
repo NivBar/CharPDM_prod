@@ -3,6 +3,7 @@ import config
 import tiktoken
 import pandas as pd
 import glob
+import re
 # from bson.objectid import ObjectId
 import warnings
 from pprint import pprint
@@ -49,6 +50,37 @@ def rank_str(loc):
         return ("fourth")
     elif loc == 5:
         return ("fifth")
+
+
+def count_words_complete_sentences(text):
+    # Split the text into sentences using a regex pattern
+    sentences = re.split(r'(?<=[.!?])\s+|\n', text)
+
+    # Check if the last sentence is incomplete and remove it if necessary
+    if sentences and sentences[-1].strip() and sentences[-1].strip()[-1] not in ['.', '!', '?']:
+        sentences.pop()
+
+    # Check if truncation is necessary
+    if sentences:
+        word_count = sum(len(sentence.split()) for sentence in sentences)
+        truncated_text = text
+
+        while word_count > 150:
+            if len(sentences) < 2:
+                break
+            sentences.pop()
+            truncated_text = ' '.join(sentences)
+            word_count = sum(len(sentence.split()) for sentence in sentences)
+
+        if word_count < 140:
+            return len(text.split()), text, False
+
+        if word_count >= 140 and word_count <= 150:
+            return word_count, truncated_text + "." if truncated_text[-1] != "." else truncated_text, True
+
+    # All sentences are complete
+    word_count = len(text.split())
+    return word_count, text, False
 
 def get_messages(bot_name, data):
     assert bot_name in ["NMABOT", "NMTBOT", "NMSBOT", "MABOT", "MTBOT", "MSBOT"]
@@ -137,6 +169,8 @@ def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p
         max_tokens -= 50
         print("Changed max tokens for response to:", max_tokens)
 
+    word_no, res = 0, ""
+
     while not response:
         try:
             response = openai.ChatCompletion.create(
@@ -149,13 +183,13 @@ def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p
                 presence_penalty=presence_penalty,
             )
             # print("success")
-            word_no = len(response['choices'][0]['message']['content'].split(' '))
-            if word_no > 150:
+            word_no, res, ok_flag = count_words_complete_sentences(response['choices'][0]['message']['content'])
+            if word_no > 150 or (word_no < 140 and max_tokens > 170):
                 max_tokens -= 10
                 response = False
                 print(f"word no was: {word_no}, dropping max tokens to: {max_tokens}.")
                 continue
-            if word_no < 140:
+            if word_no < 140 or not ok_flag:
                 max_tokens += 10
                 response = False
                 print(f"word no was: {word_no}, increasing max tokens to: {max_tokens}.")
@@ -164,7 +198,8 @@ def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p
         except Exception as e:
             print(e)
             continue
-    return response
+    print(f"word no is: {word_no}, current max tokes: {max_tokens}.")
+    return res
 
 
 if __name__ == '__main__':
@@ -190,12 +225,12 @@ if __name__ == '__main__':
             pprint(messages)
             bot_valid[bot_name] = True
 
-        res = get_comp_text(messages)['choices'][0]['message']['content']
-        deleted_segment = min(
-            [x for x in [res.split(".")[-1], res.split("!")[-1], res.split("?")[-1], res.split("\n\n")[-1]] if
-             x != res],
-            key=len)
-        res = res.replace(deleted_segment, "")
+        res = get_comp_text(messages)
+        # deleted_segment = min(
+        #     [x for x in [res.split(".")[-1], res.split("!")[-1], res.split("?")[-1], res.split("\n\n")[-1]] if
+        #      x != res],
+        #     key=len)
+        # res = res.replace(deleted_segment, "")
         orig.at[idx, "text"] = res
         orig.to_csv("bot_followup.csv", index=False)
         print(f"Done {idx + 1}/{len_}: {bot_name}, {group}, {query_id}")
