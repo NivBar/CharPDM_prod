@@ -7,6 +7,7 @@ import re
 # from bson.objectid import ObjectId
 import warnings
 from pprint import pprint
+from nltk.corpus import stopwords
 
 warnings.filterwarnings("ignore")
 
@@ -39,6 +40,7 @@ def rank_suff(loc):
     else:
         return ("th")
 
+
 def rank_str(loc):
     if loc == 1:
         return ("first")
@@ -52,6 +54,32 @@ def rank_str(loc):
         return ("fifth")
 
 
+def remove_sentences_second(sentences):
+    # Calculate the initial total number of words
+    total_words = sum(len(sentence.split()) for sentence in sentences)
+
+    # Check if total_words is already within the desired range or below 140
+    if total_words <= 150:
+        return sentences
+
+    # Find and remove a sentence if total_words can be adjusted within the desired range
+    while total_words > 150:
+        for sentence in sorted(sentences, key=len):
+            # Calculate the updated total number of words without the current sentence
+            updated_total_words = total_words - len(sentence.split())
+            if updated_total_words <= 150:
+                total_words = updated_total_words
+                sentences.remove(sentence)
+                return sentences
+
+        # Remove the shortest sentence if no sentence can be removed to meet the desired range or below 140
+        if total_words > 150:
+            shortest_sentence = min(sentences, key=lambda sentence: len(sentence))
+            sentences.remove(shortest_sentence)
+            total_words = total_words - len(shortest_sentence.split())
+    return sentences
+
+
 def count_words_complete_sentences(text):
     # Split the text into sentences using a regex pattern
     sentences = re.split(r'(?<=[.!?])\s+|\n', text)
@@ -59,6 +87,8 @@ def count_words_complete_sentences(text):
     # Check if the last sentence is incomplete and remove it if necessary
     if sentences and sentences[-1].strip() and sentences[-1].strip()[-1] not in ['.', '!', '?']:
         sentences.pop()
+
+    sentences_second = sentences.copy()
 
     # Check if truncation is necessary
     if sentences:
@@ -73,7 +103,18 @@ def count_words_complete_sentences(text):
             word_count = sum(len(sentence.split()) for sentence in sentences)
 
         if word_count < 140:
-            return len(text.split()), text, False
+            # second try (less preferred)
+            word_count_second = sum(len(sentence.split()) for sentence in sentences_second)
+            sentences_second = remove_sentences_second(sentences_second)
+            truncated_text_second = ' '.join(sentences_second)
+            word_count_second_new = sum(len(sentence.split()) for sentence in sentences_second)
+            print(f"second try initiated, word counts - orig: {word_count_second}, new: {word_count_second_new}")
+
+            if word_count_second_new >= 140 and word_count_second_new <= 150:
+                return word_count_second_new, truncated_text_second + "." if truncated_text_second[
+                                                                                 -1] != "." else truncated_text_second, True
+            if word_count < 140:
+                return len(text.split()), text, False
 
         if word_count >= 140 and word_count <= 150:
             return word_count, truncated_text + "." if truncated_text[-1] != "." else truncated_text, True
@@ -81,6 +122,16 @@ def count_words_complete_sentences(text):
     # All sentences are complete
     word_count = len(text.split())
     return word_count, text, False
+
+
+def get_unique_words(string):
+    cleaned_string = re.sub(r'[^\w\s]', '', string.lower())
+    words = cleaned_string.split()
+    unique_words = set(words)
+    stop_words = set(stopwords.words('english'))
+    unique_words = unique_words - stop_words
+    return unique_words
+
 
 def get_messages(bot_name, data):
     assert bot_name in ["NMABOT", "NMTBOT", "NMSBOT", "MABOT", "MTBOT", "MSBOT"]
@@ -98,16 +149,29 @@ def get_messages(bot_name, data):
     epoch = int(max(data["round_no"]))
     if markov:
         data = data[data["round_no"] == epoch]
+    else:
+        data = data[data["round_no"].isin([epoch,epoch - 1])]
 
-    messages = [
+    query_string = ', '.join(queries)
+
+    base_messages = [
         {"role": "system",
-         "content": fr"You participate in a search engine optimization competition regarding the following queries: " +
-                    ", ".join(queries) +
-                    ". Your document should be ranked first for all queries."},
+         "content": fr"You participate in a search engine optimization competition regarding the following topic\s: {query_string}"},
         {"role": "user",
-         "content": "Generate a single text that a user will deem as highly relevant to all three queries."
-                    " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"},
-    ]
+         "content": f"Generate a single text that a ranker will deem as highly relevant to {query_string}, incorporate the words {get_unique_words(query_string)} and avoid stop words in your text as much as possible."
+                    " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"}]
+
+    messages = base_messages.copy()
+
+    # messages = [
+    #     {"role": "system",
+    #      "content": fr"You participate in a search engine optimization competition regarding the following queries: " +
+    #                 ", ".join(queries) +
+    #                 ". Your document should be ranked first for all queries."},
+    #     {"role": "user",
+    #      "content": "Generate a single text that a user will deem as highly relevant to all three queries."
+    #                 " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"},
+    # ]
 
     rounds = data['round_no'].unique()
     for r in rounds:
@@ -138,9 +202,7 @@ def get_messages(bot_name, data):
             messages.append({"role": "system",
                              "content": f"Infer from the documents and rankings how to align well with the ranker's"
                                         f" features."})
-            messages.append({"role": "user",
-                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
-                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
+            messages.append(base_messages[1])
 
         elif bot_type == "tops":
             messages.append(
@@ -150,18 +212,15 @@ def get_messages(bot_name, data):
                             f"respectively: {top_text}"})
             messages.append({"role": "system",
                              "content": f"Infer from the top document how to align well with the ranker's features."})
-            messages.append({"role": "user",
-                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
-                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
+            messages.append(base_messages[1])
 
         elif bot_type == "self":
-            messages.append({"role": "user",
-                             "content": "Generate a single text that a user will deem as highly relevant to all three queries."
-                                        " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"})
+            messages.append(base_messages[1])
     return messages
 
 
-def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p, frequency_penalty = config.frequency_penalty,presence_penalty = config.presence_penalty):
+def get_comp_text(messages, temperature=config.temperature, top_p=config.top_p,
+                  frequency_penalty=config.frequency_penalty, presence_penalty=config.presence_penalty):
     max_tokens = config.max_tokens
     response = False
     prompt_tokens = len(encoder.encode("".join([line['content'] for line in messages]))) + 200
@@ -169,7 +228,7 @@ def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p
         max_tokens -= 50
         print("Changed max tokens for response to:", max_tokens)
 
-    word_no, res = 0, ""
+    word_no, res, counter = 0, "", 0
 
     while not response:
         try:
@@ -184,16 +243,22 @@ def get_comp_text(messages,temperature = config.temperature,top_p = config.top_p
             )
             # print("success")
             word_no, res, ok_flag = count_words_complete_sentences(response['choices'][0]['message']['content'])
-            if word_no > 150 or (word_no < 140 and max_tokens > 170):
+            if counter == 5:
+                max_tokens = config.max_tokens
+                counter = 0
+            if (word_no > 150 and max_tokens > 200):
                 max_tokens -= 10
                 response = False
                 print(f"word no was: {word_no}, dropping max tokens to: {max_tokens}.")
+                counter += 1
                 continue
-            if word_no < 140 or not ok_flag:
+            if word_no < 140 or not ok_flag or max_tokens <= 200:
                 max_tokens += 10
                 response = False
                 print(f"word no was: {word_no}, increasing max tokens to: {max_tokens}.")
+                counter += 1
                 continue
+            counter = 0
             break
         except Exception as e:
             print(e)
