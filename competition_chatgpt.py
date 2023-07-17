@@ -1,3 +1,4 @@
+import numpy as np
 import openai
 import config
 import tiktoken
@@ -93,7 +94,7 @@ def count_words_complete_sentences(text):
     # Check if truncation is necessary
     if sentences:
         word_count = sum(len(sentence.split()) for sentence in sentences)
-        truncated_text = text
+        truncated_text = " ".join(sentences)
 
         while word_count > 150:
             if len(sentences) < 2:
@@ -130,7 +131,7 @@ def get_unique_words(string):
     unique_words = set(words)
     stop_words = set(stopwords.words('english'))
     unique_words = unique_words - stop_words
-    return unique_words
+    return str(unique_words).replace("{", "").replace("}", "").replace("'", "")
 
 
 def get_messages(bot_name, data):
@@ -156,9 +157,9 @@ def get_messages(bot_name, data):
 
     base_messages = [
         {"role": "system",
-         "content": fr"You participate in a search engine optimization competition regarding the following topic\s: {query_string}"},
+         "content": fr"You participate in a search engine optimization competition regarding the following topics: {query_string}"},
         {"role": "user",
-         "content": f"Generate a single text that a ranker will deem as highly relevant to {query_string}, incorporate the words {get_unique_words(query_string)} and avoid stop words in your text as much as possible."
+         "content": f"Generate a single text that a ranker will deem as highly relevant to {query_string}. Incorporate the queries' words ({get_unique_words(query_string)}) in your text as much as possible."
                     " The text should be comprehensive, informative and coherent. Avoid meta commentary.\nText:"}]
 
     messages = base_messages.copy()
@@ -187,32 +188,37 @@ def get_messages(bot_name, data):
 
         messages.append({"role": "assistant", "content": f"{curr_text}"})
         messages.append({"role": "system",
-                         "content": f"You were ranked {rank_str(curr_ranks[0])}, {rank_str(curr_ranks[1])}, "
-                                    f"{rank_str(curr_ranks[2])} respectively in this epoch"})
+                         "content": f"You were ranked {rank_str(np.median([curr_ranks[0],curr_ranks[1],curr_ranks[2]]))} in this epoch"})
 
         if bot_type == "all":
             txt_rnk = ""
             for _, row in round_data.iterrows():
                 if row["username"] != bot_name:
-                    txt_rnk += f"Ranked {rank_str(row['position1'])}, {rank_str(row['position2'])}, " \
-                               f"{rank_str(row['position3'])} respectively:\n{row['posted_document']}\n\n"
+                    txt_rnk += f"Ranked {rank_str(np.median([row['position1'],row['position2'],row['position3']]))}:\n{row['posted_document']}\n\n"
             messages.append(
                 {"role": "system",
-                 "content": f"The ranked documents of your opponents in this epoch are as follows:\n {txt_rnk}"})
-            messages.append({"role": "system",
-                             "content": f"Infer from the documents and rankings how to align well with the ranker's"
-                                        f" features."})
-            messages.append(base_messages[1])
+                 "content": f"All ranked documents are as follows:\n {txt_rnk}"})
+            # messages.append({"role": "system",
+            #                  "content": f"Infer from the documents and rankings how to align well with the ranker's"
+            #                             f" features."})
+            messages.append({"role": "user",
+                             "content": f"Generate a single text that highly resembles the top (first) text. Text:"})
+            # messages.append(base_messages[1])
 
         elif bot_type == "tops":
+            # messages.append(
+            #     {"role": "system",
+            #      "content": f"The top document, ranked {rank_str(top_ranks[0])}, "
+            #                 f"{rank_str(top_ranks[1])}, {rank_str(top_ranks[2])} "
+            #                 f"respectively: {top_text}"})
             messages.append(
                 {"role": "system",
-                 "content": f"The top document, ranked {rank_str(top_ranks[0])}, "
-                            f"{rank_str(top_ranks[1])}, {rank_str(top_ranks[2])} "
-                            f"respectively: {top_text}"})
-            messages.append({"role": "system",
-                             "content": f"Infer from the top document how to align well with the ranker's features."})
-            messages.append(base_messages[1])
+                 "content": f"The top text: {top_text}"})
+            # messages.append({"role": "system",
+            #                  "content": f"Infer from the top document how to align well with the ranker's features."})
+            messages.append({"role": "user",
+                             "content": f"Generate a single text that highly resembles the top text. Text:"})
+            # messages.append(base_messages[1])
 
         elif bot_type == "self":
             messages.append(base_messages[1])
@@ -243,16 +249,24 @@ def get_comp_text(messages, temperature=config.temperature, top_p=config.top_p,
             )
             # print("success")
             word_no, res, ok_flag = count_words_complete_sentences(response['choices'][0]['message']['content'])
-            if counter == 5:
-                max_tokens = config.max_tokens
+            if counter > 5:
+                print("LOOP BREAK - Try creating a new text manually. Truncated.")
+                res = " ".join(res.split()[:148]) + "."
                 counter = 0
-            if (word_no > 150 and max_tokens > 200):
-                max_tokens -= 10
-                response = False
-                print(f"word no was: {word_no}, dropping max tokens to: {max_tokens}.")
-                counter += 1
-                continue
-            if word_no < 140 or not ok_flag or max_tokens <= 200:
+                break
+            # if (word_no > 150 and max_tokens > 200):
+            #     max_tokens -= 10
+            #     response = False
+            #     print(f"word no was: {word_no}, dropping max tokens to: {max_tokens}.")
+            #     counter += 1
+            #     continue
+            # if word_no < 140 or not ok_flag or max_tokens <= 200:
+            #     max_tokens += 10
+            #     response = False
+            #     print(f"word no was: {word_no}, increasing max tokens to: {max_tokens}.")
+            #     counter += 1
+            #     continue
+            if word_no < 140 or word_no > 150:
                 max_tokens += 10
                 response = False
                 print(f"word no was: {word_no}, increasing max tokens to: {max_tokens}.")
@@ -286,9 +300,9 @@ if __name__ == '__main__':
             rel_data[["position1", "position2", "position3"]].median(axis=1).sort_values(axis=0).index]
         messages = get_messages(bot_name, rel_data)
 
-        if not bot_valid[bot_name]:
-            pprint(messages)
-            bot_valid[bot_name] = True
+    #    if not bot_valid[bot_name]:
+    #        pprint(messages)
+    #        bot_valid[bot_name] = True
 
         res = get_comp_text(messages)
         # deleted_segment = min(

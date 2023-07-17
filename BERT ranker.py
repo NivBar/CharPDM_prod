@@ -2,16 +2,15 @@ import re
 import json
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
 from tqdm import tqdm
 import os
 import glob
 import pandas as pd
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-import random
+# import torch.nn as nn
+# import torch.optim as optim
+# import matplotlib.pyplot as plt
+# import random
 from competition_chatgpt import get_comp_text
 # import nltk
 # nltk.download('stopwords')
@@ -135,6 +134,8 @@ def get_queries_string(df):
 if __name__ == '__main__':
     # fixed weights
     weights = [0.2, 0.3, 1.0, 0.0]
+
+
     all_files = glob.glob(os.path.join("./data_snapshots/", "*.csv"))
     # check if a temp file exists
     if os.path.exists("./fine_tuning_files/temp_df.csv"):
@@ -151,12 +152,15 @@ if __name__ == '__main__':
 
     scores_dict = dict()
     scores_dict["messages"] = messages
+    scores_dict["weights"] = weights
     scores_dict["data"] = dict()
     # scores_list = []
     for query in tqdm(queries_list):
-        # do not create new text for queries that already have a text
-        if df[df.query_string == query].gen_text.notna().sum() != 0:
-            continue
+
+        # # do not create new text for queries that already have a text
+        # if df[df.query_string == query].gen_text.notna().sum() != 0:
+        #   continue
+
         text = generate_text(query, weights)
         # text = "test doc"
         docs_dict["TEST"] = text
@@ -173,6 +177,7 @@ if __name__ == '__main__':
         scores_dict["data"][idx] = {"score1": temp_score_list[0], "score2": temp_score_list[1],
                                     "score3": temp_score_list[2], "text": text, "query1": query_list[0],
                                     "query2": query_list[1], "query3": query_list[2]}
+
         # scores_list.append(temp_score_list)
         df["gen_text"][df.query_string == query] = text
         df.to_csv("./fine_tuning_files/temp_df.csv", index=False)

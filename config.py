@@ -45,14 +45,15 @@ text. High presence_penalty values (e.g., 2.0 or higher) can promote the generat
 values (e.g., 0.5 or lower) can produce more repetitive and redundant outputs.
 """
 model = "gpt-3.5-turbo"
-# temperature = 1.0
-# top_p = 0.9
-# max_tokens = 700
-# frequency_penalty = 1.0
-# presence_penalty = 2.0
+# temperature = 0.1
+# top_p = 0.3
+# max_tokens = 250
+# frequency_penalty = 2.0
+# presence_penalty = 0.0
+
 temperature = 0.2
 top_p = 0.3
-max_tokens = 160
+max_tokens = 250
 frequency_penalty = 1.0
 presence_penalty = 0.0
 
